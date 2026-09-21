@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import API from '../services/api';
 import alertService from '../services/alert.service';
 import { useAuth } from '../hooks/useAuth';
-import { Calendar, Search, Save, Check, X, RefreshCw, Download, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Calendar, Search, Save, Check, X, RefreshCw, Download, ArrowLeft, ArrowRight, Printer } from 'lucide-react';
+import Swal from 'sweetalert2';
 
 export default function AttendanceDesk() {
     const { user } = useAuth();
@@ -27,9 +28,112 @@ export default function AttendanceDesk() {
             fetchDropdownClassrooms();
         }
     }, [user, searchLog, dateFilter, currentPage]);
-    const handleExportPDF = () => {
-        // Triggers native cross-browser high-fidelity print manager stream layouts
-        window.print();
+    const handleExportPDF = async () => {
+        if (!classId || !selectedDate) {
+            return alertService.error('Parameters Incomplete', 'Please select a classroom selection node and a valid date before printing.');
+        }
+
+        // Generate option elements dynamically for the swal dropdown
+        const dropdownOptionsHTML = classrooms.map(cls => `
+        <option value="${cls.id}" ${String(cls.id) === String(classId) ? 'selected' : ''}>
+            ${cls.name} — ${cls.section}
+        </option>
+    `).join('');
+
+        // 1. Fire the modern SweetAlert2 configuration modal layout
+        const { value: formValues } = await Swal.fire({
+            title: 'Confirm Export Parameters',
+            icon: 'question',
+            iconColor: '#4f46e5', // Beautiful theme matching your Indigo accents
+            html: `
+            <div style="text-align: left; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #1e293b;">
+                <p style="margin-bottom: 20px; font-size: 14px; line-height: 1.5; color: #64748b;">
+                    Review or modify the parameters below. The backend server will compile a pixel-perfect PDF file matching your target filters.
+                </p>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #4f46e5; margin-bottom: 6px;">Target Classroom</label>
+                    <select id="swal-class-id" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 14px; color: #0f172a; outline: none; background: #fff; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); font-weight: 500; cursor: pointer; transition: all 0.2s;">
+                        ${dropdownOptionsHTML}
+                    </select>
+                </div>
+
+                <div style="margin-bottom: 8px;">
+                    <label style="display: block; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #4f46e5; margin-bottom: 6px;">Target Date</label>
+                    <input type="date" id="swal-date" value="${selectedDate}" max="${new Date().toISOString().split('T')[0]}" style="width: 100%; box-sizing: border-box; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 14px; color: #0f172a; outline: none; background: #fff; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); font-weight: 500; cursor: pointer; transition: all 0.2s;" />
+                </div>
+            </div>
+        `,
+            showCancelButton: true,
+            confirmButtonText: 'Compile & Download PDF',
+            cancelButtonText: 'Go Back',
+            confirmButtonColor: '#4f46e5',
+            cancelButtonColor: '#94a3b8',
+            focusConfirm: false,
+            customClass: {
+                popup: 'rounded-3xl border border-slate-100 shadow-xl',
+                confirmButton: 'rounded-xl px-5 py-2.5 font-semibold text-sm shadow-sm transition-all',
+                cancelButton: 'rounded-xl px-5 py-2.5 font-semibold text-sm transition-all'
+            },
+            preConfirm: () => {
+                const finalClassId = document.getElementById('swal-class-id').value;
+                const finalDate = document.getElementById('swal-date').value;
+
+                if (!finalClassId || !finalDate) {
+                    Swal.showValidationMessage('Both Class and Date selections are required!');
+                    return false;
+                }
+
+                return { finalClassId, finalDate };
+            }
+        });
+
+        if (!formValues) return;
+
+        const { finalClassId, finalDate } = formValues;
+
+        // Sync your primary dashboard states with the newly confirmed values
+        setClassId(finalClassId);
+        setSelectedDate(finalDate);
+
+        // 2. Clear visual user feedback: Fire a sleek background loading sequence while Puppeteer runs
+        Swal.fire({
+            title: 'Generating Report Ledger',
+            html: 'Launching engine context parameters. Please wait...',
+            allowOutsideClick: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+
+        // 3. Hit the backend endpoint utilizing the synchronized variables
+        try {
+            const response = await API.get('/attendance/export-pdf', {
+                params: {
+                    classId: finalClassId,
+                    date: finalDate
+                },
+                responseType: 'blob'
+            });
+
+            const blob = new Blob([response.data], { type: 'application/pdf' });
+            const blobUrl = window.URL.createObjectURL(blob);
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.href = blobUrl;
+            downloadAnchor.download = `Attendance_Statement_${finalDate}.pdf`;
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+            window.URL.revokeObjectURL(blobUrl);
+
+            // 4. Automatically close the background processing animation and alert success
+            Swal.close();
+            alertService.success('PDF Generated', 'Your clean server-rendered document has downloaded successfully.');
+        } catch (err) {
+            console.error('PDF Download Pipeline Fault:', err);
+            Swal.close(); // Clean out loading blocker
+            alertService.error('Print Processing Failed', 'The server-side document tracking engine could not generate your PDF.');
+        }
     };
     const fetchDropdownClassrooms = async () => {
         try {
@@ -37,9 +141,9 @@ export default function AttendanceDesk() {
             const dataEnvelope = res.data;
             let classroomList = [];
             if (dataEnvelope && Array.isArray(dataEnvelope.records)) {
-                classroomList = dataEnvelope.records; 
+                classroomList = dataEnvelope.records;
             } else if (Array.isArray(dataEnvelope)) {
-                classroomList = dataEnvelope; 
+                classroomList = dataEnvelope;
             } else if (dataEnvelope && typeof dataEnvelope === 'object') {
                 const discoveredArray = Object.values(dataEnvelope).find(val => Array.isArray(val));
                 classroomList = discoveredArray || [];
@@ -52,7 +156,7 @@ export default function AttendanceDesk() {
 
                 setClassrooms(restrictedList);
                 if (restrictedList.length > 0) {
-                    setClassId(restrictedList[0].id); 
+                    setClassId(restrictedList[0].id);
                 }
             } else {
                 const safeGlobalList = Array.isArray(classroomList) ? classroomList : [];
@@ -115,24 +219,102 @@ export default function AttendanceDesk() {
     };
 
     const handleDownloadCSV = async () => {
+        // 1. Gather choices for the alert menu
+        const dropdownOptionsHTML = classrooms.map(cls => `
+        <option value="${cls.id}" ${String(cls.id) === String(classId) ? 'selected' : ''}>
+            ${cls.name} — ${cls.section}
+        </option>
+    `).join('');
+
+        // 2. Fire the matching SweetAlert2 confirmation layout configuration
+        const { value: formValues } = await Swal.fire({
+            title: 'Confirm CSV Export',
+            icon: 'question',
+            iconColor: '#059669', // Professional Emerald theme matching your CSV action accents
+            html: `
+            <div style="text-align: left; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #1e293b;">
+                <p style="margin-bottom: 20px; font-size: 14px; line-height: 1.5; color: #64748b;">
+                    Select the target classroom parameters. The data engine will compile an unpaginated spreadsheet file containing the full history registry ledger.
+                </p>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #059669; margin-bottom: 6px;">Target Classroom</label>
+                    <select id="swal-csv-class-id" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 14px; color: #0f172a; outline: none; background: #fff; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); font-weight: 500; cursor: pointer;">
+                        <option value="all" ${classId === '' ? 'selected' : ''}>Export All Classrooms (Full Institution Scope)</option>
+                        ${dropdownOptionsHTML}
+                    </select>
+                </div>
+            </div>
+        `,
+            showCancelButton: true,
+            confirmButtonText: 'Generate Spreadsheet',
+            cancelButtonText: 'Go Back',
+            confirmButtonColor: '#059669', // Emerald green styling matching your theme accents
+            cancelButtonColor: '#94a3b8',
+            focusConfirm: false,
+            customClass: {
+                popup: 'rounded-3xl border border-slate-100 shadow-xl',
+                confirmButton: 'rounded-xl px-5 py-2.5 font-semibold text-sm shadow-sm transition-all',
+                cancelButton: 'rounded-xl px-5 py-2.5 font-semibold text-sm transition-all'
+            },
+            preConfirm: () => {
+                const finalClassId = document.getElementById('swal-csv-class-id').value;
+                if (!finalClassId) {
+                    Swal.showValidationMessage('Classroom configuration target is required!');
+                    return false;
+                }
+                return { finalClassId };
+            }
+        });
+
+        if (!formValues) return;
+
+        const { finalClassId } = formValues;
+
+        // Sync dashboard state seamlessly if the user targeted a specific classroom node container
+        if (finalClassId !== 'all') {
+            setClassId(finalClassId);
+        }
+
+        // 3. Prevent multi-clicks: Activate the fullscreen visual processing screen overlay blocks
+        Swal.fire({
+            title: 'Building Spreadsheet Registry',
+            html: 'Compiling rows and formatting columns. Please wait...',
+            allowOutsideClick: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+
+        // 4. Hit the unpaginated export service endpoint via your global API configuration pipeline
         try {
-            const token = localStorage.getItem('token');
-            // Direct stream connection link matching blob types natively
-            const response = await fetch('http://localhost:5000/api/attendance/export', {
-                method: 'GET',
-                headers: { 'Authorization': `Bearer ${token}` }
+            const response = await API.get('/attendance/export', {
+                params: {
+                    classId: finalClassId === 'all' ? '' : finalClassId
+                },
+                responseType: 'blob' // ⚡ CRITICAL: Feeds raw tracking binary text frames downstream safely
             });
 
-            const blob = await response.blob();
+            const blob = new Blob([response.data], { type: 'text/csv' });
             const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `attendance_report_${new Date().toISOString().split('T')[0]}.csv`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
+
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.href = url;
+            downloadAnchor.download = `Attendance_Report_${finalClassId === 'all' ? 'All_Classes' : 'Class_' + finalClassId}_${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+
+            // Memory allocation cleanup routines
+            downloadAnchor.remove();
+            window.URL.revokeObjectURL(url);
+
+            // 5. Wrap up processing steps cleanly
+            Swal.close();
+            alertService.success('CSV Exported', 'Your data sheet has loaded and downloaded successfully.');
         } catch (err) {
-            alert('Failed downloading report parameters.');
+            console.error('CSV Download Pipeline Fault:', err);
+            Swal.close(); // Clean up backdrop blocking overlays instantly
+            alertService.error('Download Failure', 'The system encountered an error while formatting your spreadsheet data logs.');
         }
     };
     const submitBulkLogs = async () => {
@@ -238,7 +420,7 @@ export default function AttendanceDesk() {
                             style={{ backgroundColor: '#4f46e5', color: '#ffffff' }}
                             className="h-10 px-4 rounded-xl font-bold text-xs transition flex items-center space-x-1.5 cursor-pointer hover:opacity-90 border-0 shadow-sm"
                         >
-                            <span style={{ color: '#ffffff' }}>Export PDF Report</span>
+                            <Printer className="w-4 h-4" />Export PDF Report
                         </button>
                         <button
                             onClick={fetchLogs}
