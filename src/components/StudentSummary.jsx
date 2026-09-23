@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import API from '../services/api';
 import alertService from '../services/alert.service';
 import { useAuth } from '../hooks/useAuth';
-import { Calendar, CheckCircle2, XCircle, Clock, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Calendar, CheckCircle2, XCircle, Clock } from 'lucide-react';
 
 export default function StudentSummary() {
-    const { user } = useAuth(); // Extracted logged-in student profile payload matrix
+    const { user, currentYearId } = useAuth();
 
     // Roster arrays and loaders tracking variables
     const [logs, setLogs] = useState([]);
@@ -68,8 +68,17 @@ export default function StudentSummary() {
         if (user) {
             fetchPersonalLogs();
         }
-    }, [user, currentPage]);
+    }, [user, currentPage, currentYearId]);
+    useEffect(() => {
+        const handleYearReset = () => {
+            setCurrentPage(1);
+        };
 
+        window.addEventListener("academic-year-changed", handleYearReset);
+        return () => {
+            window.removeEventListener("academic-year-changed", handleYearReset);
+        };
+    }, []);
     const badge = getPerformanceBadge(stats.rate);
     return (
         <div className="space-y-8 w-full text-slate-800">
@@ -111,6 +120,7 @@ export default function StudentSummary() {
                     <h3 className="text-2xl font-black text-amber-500 mt-2">{stats.late}</h3>
                 </div>
             </div>
+
 
             {/* Historical Logs Ledger Data Table Card Sheet Container */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
@@ -160,7 +170,7 @@ export default function StudentSummary() {
                         {/* HIGH VISIBILITY TEXT-BASED PAGINATION CONTROLLER ROW */}
                         <div className="flex items-center justify-between pt-4 border-t border-slate-100 mt-4 bg-slate-50/50 p-3 rounded-xl">
                             <span className="text-xs font-bold text-slate-500">
-                                Page <span className="text-slate-900 font-extrabold">{currentPage}</span> of {totalPages}
+                                Page <span className="text-slate-900 font-extrabold">{currentPage}</span> of <span className="text-slate-900 font-extrabold">{totalPages}</span>
                             </span>
                             <div className="flex items-center space-x-2">
                                 <button

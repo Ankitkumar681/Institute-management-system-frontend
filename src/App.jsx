@@ -14,6 +14,8 @@ import StaffDirectory from './pages/StaffDirectory';
 import ManageAssignments from './pages/ManageAssignments';
 import OnboardInstitute from './pages/OnboardInstitute'; 
 import ForgotPassword from './pages/ForgotPassword';
+import AcademicYearManager from './pages/AcademicYearManager';
+import CohortPromotionManager from './pages/CohortPromotionManager';
 
 const WrappedDashboard = ({ Component }) => (
   <DashboardLayout>
@@ -46,6 +48,8 @@ export default function App() {
           </Route>
           {/* Institute Admin Tools Management */}
           <Route element={<ProtectedRoute allowedRoles={['institute_admin']} />}>
+          <Route path="/admin/academic-years" element={<WrappedDashboard Component={AcademicYearManager} />} />
+          <Route path="/admin/promote-cohorts" element={<WrappedDashboard Component={CohortPromotionManager} />} />
             <Route path="/classrooms" element={<WrappedDashboard Component={ManageClassrooms} />} />
             <Route path="/students/onboard" element={<WrappedDashboard Component={ManageStudents} />} />
             <Route path="/staff/onboard" element={<WrappedDashboard Component={ManageStaff} />} />

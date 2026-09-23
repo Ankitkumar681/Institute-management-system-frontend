@@ -11,6 +11,14 @@ API.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`; // Binds Bearer structure cleanly
     }
+    const selectedYearId = localStorage.getItem("selectedAcademicYearId");
+    if (selectedYearId) {
+      // Automatically appends '?academicYearId=...' to every outbound API query parameter dictionary natively
+      config.params = {
+        ...config.params,
+        academicYearId: selectedYearId
+      };
+    }
     return config;
   },
   (error) => {
@@ -22,6 +30,27 @@ API.interceptors.request.use(
 API.interceptors.response.use(
   (response) => response,
   async (error) => {
+    if (error.response && error.response.status === 401) {
+      console.warn(
+        "JWT Session has expired or is invalid. Purging identity traces...",
+      );
+
+      // 1. Wipe all active token and profile memory parameters from the browser instantly
+      localStorage.clear();
+
+      // 2. Dispatch a clean custom window event to force React AuthContext states to null
+      window.dispatchEvent(new Event("auth-session-expired"));
+
+      // 3. Present an automated alert popup notifying the user their session has timed out
+      await alertService.error(
+        "Session Expired",
+        "Your login session has expired. Please sign in again to access your institute dashboard.",
+      );
+
+      // 4. Force hard page redirection right back to the login entrance form view
+      window.location.href = "/login";
+      return Promise.reject(error);
+    }
     // Intercept 403 Forbidden exceptions coming from a suspended school workspace boundary
     if (error.response && error.response.status === 403) {
       const serverMessage = error.response.data?.message;

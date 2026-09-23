@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import API from '../services/api';
 import alertService from '../services/alert.service';
 import { Layers, User, Home, ArrowRight } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 export default function ManageAssignments() {
+    const { currentYearId } = useAuth();
     const [teachers, setTeachers] = useState([]);
     const [classrooms, setClassrooms] = useState([]);
 
@@ -15,7 +17,7 @@ export default function ManageAssignments() {
         try {
             const [teachersRes, classesRes] = await Promise.all([
                 API.get('/users/staff', { params: { limit: 'all' } }), // Pulls all staff records envelope
-                API.get('/classrooms', { params: { limit: 'all' } })  // ⚡ Pulls all classrooms safely bypassing pagination grids!
+                API.get('/classrooms', { params: { limit: 'all', academicYearId: currentYearId } })
             ]);
             // Filter out general management staff, keeping only class_teachers
             const rawTeachers = teachersRes.data?.records || (Array.isArray(teachersRes.data) ? teachersRes.data : []);
@@ -29,8 +31,13 @@ export default function ManageAssignments() {
 
     useEffect(() => {
         loadData();
+    }, [currentYearId]);
+    useEffect(() => {
+        window.addEventListener("academic-year-changed", loadData);
+        return () => {
+            window.removeEventListener("academic-year-changed", loadData);
+        };
     }, []);
-
     const handleAssign = async (e) => {
         e.preventDefault();
         if (!selectedTeacher) return alertService.error('Validation Missing', 'Please pick a teacher to assign.');
@@ -38,9 +45,10 @@ export default function ManageAssignments() {
         try {
             await API.put('/users/staff/assign-class', {
                 teacherId: selectedTeacher,
-                classId: selectedClass // Blank value automatically handles unlinking cleanly
+                classId: selectedClass,
+                academicYearId: currentYearId // 🚀 THE KEY CONTEXT INJECTION: Forwards the dropdown choice to the server
             });
-            alertService.success('Assignment Saved', 'Teacher workspace linked successfully!');
+            alertService.success('Assignment Saved', 'Teacher workspace linked successfully for this educational year!');
             setSelectedTeacher('');
             setSelectedClass('');
             loadData();
@@ -50,7 +58,7 @@ export default function ManageAssignments() {
             setLoading(false);
         }
     };
-
+    
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full text-slate-800">
 

@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import API from '../services/api';
 import alertService from '../services/alert.service';
 import PaginationBar from '../components/PaginationBar';
+import { useAuth } from '../hooks/useAuth';
 
 export default function ManageClassrooms() {
+    const { currentYearId } = useAuth();
+
     const [name, setName] = useState('');
     const [section, setSection] = useState('');
     const [classrooms, setClassrooms] = useState([]);
-    const [message, setMessage] = useState({ type: '', text: '' });
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
 
@@ -18,7 +20,7 @@ export default function ManageClassrooms() {
 
     const fetchClassrooms = async () => {
         try {
-            const res = await API.get('/classrooms', { params: { page: currentPage, limit: 5 } });
+            const res = await API.get('/classrooms', { params: { page: currentPage, limit: 5, academicYearId: currentYearId || '' } });
             setClassrooms(res.data.records || []);
             setTotalPages(res.data.totalPages || 1);
         } catch (err) {
@@ -28,13 +30,21 @@ export default function ManageClassrooms() {
 
     useEffect(() => {
         fetchClassrooms();
+    }, [currentPage, currentYearId]);
+    useEffect(() => {
+        const handleGlobalYearSwitch = () => {
+            setCurrentPage(1);
+            setEditingId(null);
+        };
+        window.addEventListener("academic-year-changed", handleGlobalYearSwitch);
+        return () => {
+            window.removeEventListener("academic-year-changed", handleGlobalYearSwitch);
+        };
     }, []);
-
     const handleCreateClass = async (e) => {
         e.preventDefault();
-        setMessage({ type: '', text: '' });
         try {
-            await API.post('/classrooms', { name, section });
+            await API.post('/classrooms', { name, section, academicYearId: currentYearId || null });
             alertService.success('Classroom Registered', `"${name} (${section})" is now live.`);
             setName('');
             setSection('');
@@ -83,7 +93,7 @@ export default function ManageClassrooms() {
                         <input type="text" required value={section} onChange={(e) => setSection(e.target.value)} placeholder="e.g. Section-A" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white transition" />
                     </div>
 
-                    <button type="submit" style={{ backgroundColor: '#4f46e5', color: '#ffffff' }} className="w-full font-bold text-sm py-2.5 rounded-xl transition cursor-pointer hover:opacity-90 border-0">
+                    <button type="submit" style={{ backgroundColor: '#4f46e5', color: '#ffffff' }} className="w-full font-bold text-sm py-2.5 rounded-xl transition cursor-pointer hover:opacity-90 border-0 flex items-center justify-center h-11 shadow-md">
                         <span>Add Classroom</span>
                     </button>
                 </form>
@@ -93,7 +103,7 @@ export default function ManageClassrooms() {
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
                 <div className="pb-4 mb-4 border-b border-slate-100">
                     <h3 className="font-bold text-slate-800 text-base">Registered Classrooms</h3>
-                    <p className="text-slate-400 text-xs mt-0.5">Active partitions discovered inside this institute</p>
+                    <p className="text-slate-400 text-xs mt-0.5">Active partitions discovered inside this institute session</p>
                 </div>
 
                 {classrooms.length === 0 ? (

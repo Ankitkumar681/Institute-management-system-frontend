@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import API from '../services/api';
 import alertService from '../services/alert.service';
-import { Search, ArrowUpDown, Shield, Mail, UserCheck } from 'lucide-react';
+import { Search, ArrowUpDown, Shield, Mail } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import PaginationBar from '../components/PaginationBar';
 
@@ -33,7 +33,7 @@ export default function StaffDirectory() {
 
     useEffect(() => {
         fetchStaffData();
-    }, [search, sortOrder]);
+    }, [search, sortOrder, currentPage]);
 
     // 🚀 NEW: State handler to toggle active/inactive records dynamically
     const handleToggleStaff = async (memberId, currentStatus, name) => {
@@ -54,15 +54,14 @@ export default function StaffDirectory() {
             }
         }
     };
-
     return (
         <div className="w-full space-y-6 text-slate-800">
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="relative flex-1 w-full max-w-md">
                     <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400"><Search size={16} /></span>
-                    <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search teachers by name or official email..." className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none" />
+                    <input type="text" value={search} onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }} placeholder="Search teachers by name or official email..." className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none" />
                 </div>
-                <button onClick={() => setSortOrder(p => p === 'ASC' ? 'DESC' : 'ASC')} className="w-full sm:w-auto h-11 px-5 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl flex items-center justify-center space-x-1.5 cursor-pointer border-0">
+                <button onClick={() => { setSortOrder(p => p === 'ASC' ? 'DESC' : 'ASC'); setCurrentPage(1); }} className="w-full sm:w-auto h-11 px-5 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl flex items-center justify-center space-x-1.5 cursor-pointer border-0">
                     <ArrowUpDown size={14} />
                     <span>Alphabetical: {sortOrder === 'ASC' ? 'A to Z' : 'Z to A'}</span>
                 </button>
@@ -84,36 +83,42 @@ export default function StaffDirectory() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {staff.map(member => (
-                                <tr key={member.id} className="hover:bg-slate-50/40 transition">
-                                    <td className="p-4 pl-6 font-bold text-slate-900 flex items-center space-x-2">
-                                        <div className="h-8 w-8 bg-indigo-50 border border-indigo-100 rounded-full flex items-center justify-center font-extrabold text-xs text-indigo-600">{member.name.charAt(0)}</div>
-                                        <div>
-                                            <p>{member.name}</p>
-                                            <p className="text-xs text-slate-400 font-mono font-normal flex items-center mt-0.5"><Mail size={11} className="mr-1" />{member.email}</p>
-                                        </div>
-                                    </td>
-                                    <td className="p-4 uppercase text-xs font-bold tracking-wider text-slate-500">{member.role?.replace('_', ' ')}</td>
-                                    <td className="p-4">
-                                        <span style={member.status !== 'inactive' ? { backgroundColor: '#e6f4ea', color: '#137333' } : { backgroundColor: '#fce8e6', color: '#c5221f' }} className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase">
-                                            {member.status || 'active'}
-                                        </span>
-                                    </td>
-                                    {isAdmin && (
-                                        <td className="p-4 text-right pr-6">
-                                            {member.role !== 'institute_admin' ? (
-                                                <button
-                                                    onClick={() => handleToggleStaff(member.id, member.status || 'active', member.name)}
-                                                    style={member.status !== 'inactive' ? { backgroundColor: '#fee2e2', color: '#991b1b' } : { backgroundColor: '#e2e8f0', color: '#334155' }}
-                                                    className="text-xs font-bold px-3 py-1.5 rounded-lg border-0 cursor-pointer shadow-sm transition"
-                                                >
-                                                    {member.status === 'inactive' ? 'Activate' : 'Deactivate'}
-                                                </button>
-                                            ) : <span className="text-xs text-slate-400 italic">Root Owner</span>}
+                            {loading && staff.length === 0 ? (
+                                <tr><td colSpan="4" className="text-center py-10 text-slate-400">Loading roster items...</td></tr>
+                            ) : staff.length === 0 ? (
+                                <tr><td colSpan="4" className="text-center py-10 text-slate-400">No staff members match the query parameters.</td></tr>
+                            ) : (
+                                staff.map(member => (
+                                    <tr key={member.id} className="hover:bg-slate-50/40 transition">
+                                        <td className="p-4 pl-6 font-bold text-slate-900 flex items-center space-x-2">
+                                            <div className="h-8 w-8 bg-indigo-50 border border-indigo-100 rounded-full flex items-center justify-center font-extrabold text-xs text-indigo-600">{member.name.charAt(0)}</div>
+                                            <div>
+                                                <p>{member.name}</p>
+                                                <p className="text-xs text-slate-400 font-mono font-normal flex items-center mt-0.5"><Mail size={11} className="mr-1" />{member.email}</p>
+                                            </div>
                                         </td>
-                                    )}
-                                </tr>
-                            ))}
+                                        <td className="p-4 uppercase text-xs font-bold tracking-wider text-slate-500">{member.role?.replace('_', ' ')}</td>
+                                        <td className="p-4">
+                                            <span style={member.status !== 'inactive' ? { backgroundColor: '#e6f4ea', color: '#137333' } : { backgroundColor: '#fce8e6', color: '#c5221f' }} className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase">
+                                                {member.status || 'active'}
+                                            </span>
+                                        </td>
+                                        {isAdmin && (
+                                            <td className="p-4 text-right pr-6">
+                                                {member.role !== 'institute_admin' ? (
+                                                    <button
+                                                        onClick={() => handleToggleStaff(member.id, member.status || 'active', member.name)}
+                                                        style={member.status !== 'inactive' ? { backgroundColor: '#fee2e2', color: '#991b1b' } : { backgroundColor: '#e2e8f0', color: '#334155' }}
+                                                        className="text-xs font-bold px-3 py-1.5 rounded-lg border-0 cursor-pointer shadow-sm transition"
+                                                    >
+                                                        {member.status === 'inactive' ? 'Activate' : 'Deactivate'}
+                                                    </button>
+                                                ) : <span className="text-xs text-slate-400 italic">Root Owner</span>}
+                                            </td>
+                                        )}
+                                    </tr>
+                                ))
+                            )}
                         </tbody>
                     </table>
                 </div>

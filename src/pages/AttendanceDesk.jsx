@@ -6,7 +6,7 @@ import { Calendar, Search, Save, Check, X, RefreshCw, Download, ArrowLeft, Arrow
 import Swal from 'sweetalert2';
 
 export default function AttendanceDesk() {
-    const { user } = useAuth();
+    const { user, currentYearId, setCurrentYearId } = useAuth();
 
     const [classId, setClassId] = useState('');
     const [roster, setRoster] = useState([]);
@@ -21,13 +21,28 @@ export default function AttendanceDesk() {
     const [totalPages, setTotalPages] = useState(1);
     const [logsLoading, setLogsLoading] = useState(false);
 
-    // 4. Auto-Fetch existing registry logs on initial component render mount
+    const [academicYears, setAcademicYears] = useState([]);
+    const activeClassroom = classrooms.find(cls => String(cls.id) === String(classId));
+
     useEffect(() => {
         fetchLogs();
         if (user) {
             fetchDropdownClassrooms();
+            fetchAcademicYears();
         }
-    }, [user, searchLog, dateFilter, currentPage]);
+    }, [user, searchLog, dateFilter, currentPage, currentYearId]);
+    useEffect(() => {
+        const handleGlobalYearSwitch = () => {
+            setRoster([]);
+            setAttendanceGrid({});
+            setCurrentPage(1);
+        };
+        window.addEventListener("academic-year-changed", handleGlobalYearSwitch);
+        return () => {
+            window.removeEventListener("academic-year-changed", handleGlobalYearSwitch);
+        };
+    }, []);
+
     const handleExportPDF = async () => {
         if (!classId || !selectedDate) {
             return alertService.error('Parameters Incomplete', 'Please select a classroom selection node and a valid date before printing.');
@@ -111,7 +126,8 @@ export default function AttendanceDesk() {
             const response = await API.get('/attendance/export-pdf', {
                 params: {
                     classId: finalClassId,
-                    date: finalDate
+                    date: finalDate,
+                    academicYearId: currentYearId
                 },
                 responseType: 'blob'
             });
@@ -137,9 +153,16 @@ export default function AttendanceDesk() {
     };
     const fetchDropdownClassrooms = async () => {
         try {
-            const res = await API.get('/classrooms', { params: { limit: 'all' } });
+            // 🚀 Sent active year context directly down into parameters
+            const res = await API.get('/classrooms', {
+                params: {
+                    limit: 'all',
+                    academicYearId: currentYearId // ⚡ Scopes results dynamically to the selected cycle
+                }
+            });
             const dataEnvelope = res.data;
             let classroomList = [];
+
             if (dataEnvelope && Array.isArray(dataEnvelope.records)) {
                 classroomList = dataEnvelope.records;
             } else if (Array.isArray(dataEnvelope)) {
@@ -148,22 +171,16 @@ export default function AttendanceDesk() {
                 const discoveredArray = Object.values(dataEnvelope).find(val => Array.isArray(val));
                 classroomList = discoveredArray || [];
             }
-            if (user?.role === 'class_teacher') {
-                const teacherClassId = user.classId || '';
-                const restrictedList = Array.isArray(classroomList)
-                    ? classroomList.filter(cls => cls && cls.id === teacherClassId)
-                    : [];
 
-                setClassrooms(restrictedList);
-                if (restrictedList.length > 0) {
-                    setClassId(restrictedList[0].id);
-                }
+            // 🚀 THE FIX: Let the updated year-aware backend results handle item filtering directly!
+            // This safely accommodates teachers switching grade assignments year-over-year.
+            const safeGlobalList = Array.isArray(classroomList) ? classroomList : [];
+            setClassrooms(safeGlobalList);
+
+            if (safeGlobalList.length > 0) {
+                setClassId(safeGlobalList[0].id);
             } else {
-                const safeGlobalList = Array.isArray(classroomList) ? classroomList : [];
-                setClassrooms(safeGlobalList);
-                if (safeGlobalList.length > 0) {
-                    setClassId(safeGlobalList[0].id);
-                }
+                setClassId(''); // Resets field smoothly if they hold zero assignments for this selected year
             }
         } catch (err) {
             console.error('Failed loading dropdown nodes:', err);
@@ -178,7 +195,8 @@ export default function AttendanceDesk() {
                     search: searchLog ? searchLog.trim() : '',
                     date: dateFilter || '',
                     page: currentPage || 1,
-                    limit: 5
+                    limit: 5,
+                    academicYearId: currentYearId
                 }
             });
 
@@ -200,11 +218,34 @@ export default function AttendanceDesk() {
         if (!classId) return alertService.error('Validation Missing', 'Please select a classroom branch selection node.');
         setLoading(true);
         try {
-            const res = await API.get(`/attendance/roster?classId=${classId}`);
+            // 🚀 REFACTORED: Passes both selected year context AND the active calendar session date string
+            const res = await API.get(`/attendance/roster`, {
+                params: {
+                    classId,
+                    academicYearId: currentYearId,
+                    date: selectedDate // ⚡ Tells the server exactly which date log snapshot to look up
+                }
+            });
+
             setRoster(res.data);
+
+            // 🚀 THE MERGE UPDATE: Automatically load pre-existing statuses or default to 'Present'
             const initialGrid = {};
-            res.data.forEach(student => { initialGrid[student.id] = 'Present'; });
+            res.data.forEach(student => {
+                // 🔥 If existingStatus is found, map it immediately! Otherwise, seed as 'Present'
+                initialGrid[student.id] = student.existingStatus || 'Present';
+            });
+
             setAttendanceGrid(initialGrid);
+
+            // Present a small success notification toast to inform the teacher if history was pulled
+            const loadedHistoryCount = res.data.filter(s => s.existingStatus).length;
+            if (loadedHistoryCount > 0) {
+                alertService.success('Logs Loaded', `Pre-existing attendance matrix for ${selectedDate} pulled up for modification.`);
+            } else {
+                alertService.success('Roster Initialized', 'Fresh roll call session template loaded.');
+            }
+
         } catch (err) {
             alertService.error('Roster Error', 'Error loading student roster information parameters.');
         } finally {
@@ -217,7 +258,15 @@ export default function AttendanceDesk() {
             [studentId]: status
         }));
     };
-
+    const fetchAcademicYears = async () => {
+        try {
+            const res = await API.get('/attendance/academic-years');
+            const yearsData = res.data || [];
+            setAcademicYears(yearsData);
+        } catch (err) {
+            console.error('Failed loading educational calendars:', err);
+        }
+    };
     const handleDownloadCSV = async () => {
         // 1. Gather choices for the alert menu
         const dropdownOptionsHTML = classrooms.map(cls => `
@@ -290,17 +339,22 @@ export default function AttendanceDesk() {
         try {
             const response = await API.get('/attendance/export', {
                 params: {
-                    classId: finalClassId === 'all' ? '' : finalClassId
+                    classId: finalClassId === 'all' ? '' : finalClassId,
+                    academicYearId: currentYearId
                 },
                 responseType: 'blob' // ⚡ CRITICAL: Feeds raw tracking binary text frames downstream safely
             });
 
             const blob = new Blob([response.data], { type: 'text/csv' });
             const url = window.URL.createObjectURL(blob);
-
+            const classroomLabelName = finalClassId === 'all'
+                ? 'All_Classes'
+                : activeClassroom
+                    ? `${activeClassroom.name}_${activeClassroom.section}`.replace(/\s+/g, '_')
+                    : `Class_${finalClassId}`;
             const downloadAnchor = document.createElement('a');
             downloadAnchor.href = url;
-            downloadAnchor.download = `Attendance_Report_${finalClassId === 'all' ? 'All_Classes' : 'Class_' + finalClassId}_${new Date().toISOString().split('T')[0]}.csv`;
+            downloadAnchor.download = `Attendance_Report_${classroomLabelName}_${new Date().toISOString().split('T')[0]}.csv`;
             document.body.appendChild(downloadAnchor);
             downloadAnchor.click();
 
@@ -319,24 +373,53 @@ export default function AttendanceDesk() {
     };
     const submitBulkLogs = async () => {
         try {
-            const records = Object.keys(attendanceGrid).map(studentId => ({
-                studentId,
-                classId,
-                date: selectedDate,
-                status: attendanceGrid[studentId]
-            }));
-            await API.post('/attendance/bulk', { records });
+            const records = Object.keys(attendanceGrid).map(studentId => {
+                const studentObject = roster.find(s => String(s.id) === String(studentId));
+
+                return {
+                    studentId,
+                    classId: studentObject?.classId || classId,
+                    date: selectedDate,
+                    status: attendanceGrid[studentId]
+                };
+            });
+
+            // 🚀 FIXED: Ensure the query param string is a clean, single key injection block
+            await API.post(`/attendance/bulk?academicYearId=${currentYearId}`, { records });
+
             alertService.success('Logs Recorded', `Bulk attendance logs for ${selectedDate} saved instantly!`);
             fetchLogs();
         } catch (err) {
             alertService.error('Commit Failure', 'Failed saving classroom batch logs.');
         }
     };
+
+
     return (
         <div className="space-y-6 w-full text-slate-800">
 
             {/* 🟢 TOP PART: Selection input bar component block */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-end gap-4">
+                <div className="w-full md:w-56">
+                    <label className="block text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Academic Cycle</label>
+                    <select
+                        value={currentYearId}
+                        onChange={(e) => {
+                            const selectedId = e.target.value;
+                            localStorage.setItem("selectedAcademicYearId", selectedId);
+                            setCurrentYearId(selectedId);
+                            window.dispatchEvent(new Event("academic-year-changed"));
+                        }}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 focus:bg-white text-slate-800 font-medium transition cursor-pointer"
+                    >
+                        {academicYears.length === 0 && <option value="">Default Current Year</option>}
+                        {academicYears.map(year => (
+                            <option key={year.id} value={year.id}>
+                                {year.name} {year.isActive ? '(Active)' : ''}
+                            </option>
+                        ))}
+                    </select>
+                </div>
                 <div className="flex-1">
                     <label className="block text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Target Class Selection</label>
                     <select
@@ -368,7 +451,7 @@ export default function AttendanceDesk() {
             {roster.length > 0 && (
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-5 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-slate-50/50">
-                        <span className="font-bold text-slate-800">Roster Log Sheet Matrix ({classId})</span>
+                        <span className="font-bold text-slate-800">Roster Log Sheet Matrix ({activeClassroom ? `${activeClassroom.name} — ${activeClassroom.section}` : classId})</span>
                         <div className="flex items-center space-x-2">
                             <button onClick={() => { const u = {}; roster.forEach(s => u[s.id] = 'Present'); setAttendanceGrid(u); }} className="text-xs bg-white text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg transition font-bold cursor-pointer hover:bg-slate-50">Mark All Present</button>
                             <button onClick={() => { const u = {}; roster.forEach(s => u[s.id] = 'Absent'); setAttendanceGrid(u); }} className="text-xs bg-white text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg transition font-bold cursor-pointer hover:bg-slate-50">Mark All Absent</button>

@@ -12,12 +12,16 @@ export const AuthProvider = ({ children }) => {
       return storedUser ? JSON.parse(storedUser) : null;
     } catch (e) {
       localStorage.clear();
+      setCurrentYearId('');
       return null;
     }
   });
-
+  const [currentYearId, setCurrentYearId] = useState(() => {
+    return localStorage.getItem('selectedAcademicYearId') || user?.academicYearId || '';
+  });
   // Re-wired API Login pipeline to support thin controllers
   const login = async (email, password) => {
+    // eslint-disable-next-line no-useless-catch
     try {
       const response = await API.post('/auth/login', { email, password });
       const { token, user: authenticatedUser } = response.data;
@@ -29,7 +33,7 @@ export const AuthProvider = ({ children }) => {
       // Commit parameters to persistent storage cells
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(authenticatedUser));
-      
+
       // Inject global bearer authorization headers instantly
       API.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
@@ -44,6 +48,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.clear();
     delete API.defaults.headers.common['Authorization'];
     setUser(null);
+    setCurrentYearId('');
   };
 
   // Bind active token string onto manual hard-refreshes
@@ -55,11 +60,11 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, setUser, login, logout, currentYearId, setCurrentYearId }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-// ⚡ EXPORT CONSTRAINT COMPLIANCE FIX: Removed the standalone 'useAuth' custom hook 
+// ⚡ EXPORT CONSTRAINT COMPLIANCE FIX: Removed the standalone 'useAuth' custom hook
 // declaration from this file to stop Vite's Fast Refresh module invalidation loops!
