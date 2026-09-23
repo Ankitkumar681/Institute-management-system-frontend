@@ -210,21 +210,64 @@ export default function AcademicYearManager() {
                                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-full bg-emerald-50 text-emerald-700 shadow-sm border border-emerald-200">
                                                         <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> System Active
                                                     </span>
+                                                ) : year.isLocked ? (
+                                                    // 🔒 NEW: Status badge displaying explicit Locked status
+                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-full bg-amber-50 text-amber-700 border border-amber-200 shadow-sm">
+                                                        <span className="text-xs">🔒</span> Archived & Locked
+                                                    </span>
                                                 ) : (
                                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-full bg-slate-100 text-slate-400 border border-slate-200">
                                                         <Circle className="w-3.5 h-3.5 text-slate-300" /> Inactive Queue
                                                     </span>
                                                 )}
                                             </td>
-                                            <td className="py-4 px-3 text-right">
-                                                {!year.isActive && (
-                                                     <button 
-                                                        onClick={() => handleActivateYear(year.id, year.name)}
-                                                        style={{ backgroundColor: '#4f46e5', color: '#ffffff' }}
-                                                        className="px-3.5 py-1.5 text-xs font-bold rounded-xl shadow-sm transition-all hover:shadow active:scale-95 border-0 cursor-pointer hover:opacity-90"
-                                                    >
-                                                        Activate Year
-                                                    </button>
+                                            <td className="py-4 px-3 text-right space-x-2">
+                                                {!year.isActive && !year.isLocked && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => handleActivateYear(year.id, year.name)}
+                                                            style={{ backgroundColor: '#4f46e5', color: '#ffffff' }}
+                                                            className="px-3.5 py-1.5 text-xs font-bold rounded-xl shadow-sm transition-all hover:shadow active:scale-95 border-0 cursor-pointer hover:opacity-90 text-white"
+                                                        >
+                                                            Activate Year
+                                                        </button>
+
+                                                        {/* 🔒 NEW: Lock Track action button to trigger soft-archiving */}
+                                                        <button
+                                                            onClick={async () => {
+                                                                const confirmed = await alertService.confirm(
+                                                                    `Archive Session ${year.name}?`,
+                                                                    "This will make all attendance sheets, student rosters, and metrics for this cycle permanently read-only.",
+                                                                    "Yes, Archive & Lock"
+                                                                );
+
+                                                                if (confirmed) {
+                                                                    try {
+                                                                        // Hits the year deactivation endpoint using REST protocols
+                                                                        await API.put(`/attendance/academic-years/${year.id}/close`);
+                                                                        alertService.success('Session Locked', `The academic track "${year.name}" has been safely closed.`);
+                                                                        if (typeof fetchAcademicYears === 'function') {
+                                                                            fetchAcademicYears(); // Reloads table data matrix array
+                                                                        } else {
+                                                                            window.location.reload();
+                                                                        }
+                                                                    } catch (err) {
+                                                                        alertService.error('Action Failed', err.response?.data?.message || 'Failed to archive year.');
+                                                                    }
+                                                                }
+                                                            }}
+                                                            style={{ backgroundColor: '#f1f5f9', color: '#64748b' }}
+                                                            className="px-3.5 py-1.5 text-xs font-bold rounded-xl border-0 cursor-pointer hover:bg-slate-200 hover:text-slate-700 transition active:scale-95 text-slate-600"
+                                                        >
+                                                            Lock Track
+                                                        </button>
+                                                    </>
+                                                )}
+                                                {year.isActive && (
+                                                    <span className="text-xs font-semibold italic text-slate-400 pr-2 select-none">Active Baseline</span>
+                                                )}
+                                                {year.isLocked && !year.isActive && (
+                                                    <span className="text-xs font-semibold italic text-amber-500 pr-2 select-none">Immutable Ledger</span>
                                                 )}
                                             </td>
                                         </tr>
