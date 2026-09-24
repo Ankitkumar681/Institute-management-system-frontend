@@ -11,7 +11,7 @@ export function CoreDashboard() {
     const [classMetrics, setClassMetrics] = useState([]);
     const [superAdminData, setSuperAdminData] = useState({ totalSchools: 0, activeTenants: 0, globalStaffCount: 0 });
     const [loading, setLoading] = useState(true);
-
+    const [trendData, setTrendData] = useState([]);
     const isSuperAdmin = user?.role === 'super_admin';
     const isStudent = user?.role === 'student';
     const showMatrixView = user?.role === 'institute_admin' || user?.role === 'staff' || user?.role === 'class_teacher';
@@ -19,10 +19,14 @@ export function CoreDashboard() {
     const loadDataPipeline = async () => {
         setLoading(true);
         try {
-            // 🚀 THE SUPER ADMIN EXECUTION BRANCH: Queries global platform counters instead
+            // 🚀 THE SUPER ADMIN EXECUTION BRANCH: Queries global platform growth instead of deep school metrics
             if (isSuperAdmin) {
-                const res = await API.get('/institutes', { params: { page: 1, limit: 100 } });
-                const schoolRecords = res.data?.records || [];
+                const [resSchools, resTrend] = await Promise.all([
+                    API.get('/institutes', { params: { page: 1, limit: 100 } }),
+                    API.get('/attendance/dashboard-trend')
+                ]);
+
+                const schoolRecords = resSchools.data?.records || [];
                 const activeOnes = schoolRecords.filter(s => s.status === 'active').length;
 
                 setSuperAdminData({
@@ -30,19 +34,23 @@ export function CoreDashboard() {
                     activeTenants: activeOnes,
                     globalStaffCount: schoolRecords.length * 8 // Mock telemetry average
                 });
+                setTrendData(resTrend.data || []);
                 setLoading(false);
                 return;
             }
 
-            // Standard School Multi-Tenant Dashboard Fetch Path (Unchanged)
-            const res = await API.get('/attendance/dashboard-analytics', {
-                params: { academicYearId: currentYearId }
-            });
-            const payloadEnvelope = res.data;
+            // Standard School Multi-Tenant Dashboard Fetch Path
+            const [resAnalytics, resTrend] = await Promise.all([
+                API.get('/attendance/dashboard-analytics', { params: { academicYearId: currentYearId } }),
+                API.get('/attendance/dashboard-trend', { params: { academicYearId: currentYearId } })
+            ]);
+
+            const payloadEnvelope = resAnalytics.data;
             if (payloadEnvelope) {
                 setAnalytics(payloadEnvelope.analytics || { totalLogs: 0, presentRate: 0, absentRate: 0 });
                 setClassMetrics(payloadEnvelope.classMetrics || []);
             }
+            setTrendData(resTrend.data || []);
         } catch (err) {
             console.error("Dashboard overview pipeline query failed: ", err);
         } finally {
@@ -119,6 +127,32 @@ export function CoreDashboard() {
                         <p className="text-[11px] text-slate-400 font-medium">Estimated system administrators, faculty, and operators active.</p>
                     </div>
                 </div>
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full space-y-4">
+                    <div className="pb-3 border-b border-slate-100">
+                        <h3 className="font-bold text-slate-800 text-base">Global Tenant Registration Curve</h3>
+                        <p className="text-slate-400 text-xs mt-0.5">Chronological breakdown mapping platform registration metrics by month.</p>
+                    </div>
+                    <div className="pt-2">
+                        {loading ? (
+                            <div className="text-center py-10 text-slate-400 text-xs font-semibold">Loading platform growth metrics...</div>
+                        ) : trendData.length === 0 ? (
+                            <div className="text-center py-10 text-slate-400 text-xs font-semibold">No global onboarding events captured inside the system cluster yet.</div>
+                        ) : (
+                            <div className="flex items-end justify-between h-48 pt-6 px-4 bg-slate-50 border border-slate-200 rounded-xl max-w-4xl overflow-x-auto gap-2">
+                                {trendData.map((item, index) => (
+                                    <div key={index} className="flex flex-col items-center flex-1 min-w-[50px] group">
+                                        <span className="text-[10px] font-mono font-bold text-indigo-600 opacity-0 group-hover:opacity-100 transition duration-200 mb-1">{item.rate} Nodes</span>
+                                        <div
+                                            style={{ height: `${Math.min(Math.max((parseInt(item.rate || 0) * 25), 8), 140)}px` }}
+                                            className="w-full sm:w-6 bg-gradient-to-t from-indigo-500 to-indigo-600 rounded-t-md shadow-sm transition-all duration-300 hover:from-indigo-600 hover:to-indigo-700"
+                                        ></div>
+                                        <span className="text-[10px] font-bold text-slate-400 mt-2 truncate w-full text-center">{item.month?.slice(0, 3)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
         );
     }
@@ -129,11 +163,9 @@ export function CoreDashboard() {
             <div className="bg-gradient-to-r from-slate-900 to-indigo-950 rounded-2xl p-6 text-white shadow-xl relative border border-slate-800">
                 <h1 className="text-2xl font-black mt-1">Hello, {user?.name}</h1>
                 <p className="text-slate-400 text-sm mt-1 max-w-xl">
-                    {isSuperAdmin
-                        ? 'Global Cloud Operator Workspace: Manage global system tenants and school subscriptions.'
-                        : user?.role === 'class_teacher'
-                            ? 'Class Teacher Desk Workspace: Track analytics matching your assigned room node.'
-                            : 'Institute Command Dashboard Desk: Track sections and faculty records metrics.'}
+                    {user?.role === 'class_teacher'
+                        ? 'Class Teacher Desk Workspace: Track analytics matching your assigned room node.'
+                        : 'Institute Command Dashboard Desk: Track sections and faculty records metrics.'}
                 </p>
             </div>
 
@@ -155,10 +187,7 @@ export function CoreDashboard() {
                     </div>
                     <div className="space-y-1.5">
                         <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200/40">
-                            <div
-                                style={{ width: `${analytics.presentRate}%` }}
-                                className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-500 shadow-sm"
-                            ></div>
+                            <div style={{ width: `${analytics.presentRate}%` }} className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-500 shadow-sm"></div>
                         </div>
                         <p className="text-[11px] text-slate-400 font-medium">Cumulative classroom regularity tracking index</p>
                     </div>
@@ -183,14 +212,12 @@ export function CoreDashboard() {
                     </div>
                     <div className="space-y-1.5">
                         <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200/40">
-                            <div
-                                style={{ width: `${analytics.absentRate}%` }}
-                                className="h-full rounded-full bg-gradient-to-r from-rose-400 to-orange-500 shadow-sm"
-                            ></div>
+                            <div style={{ width: `${analytics.absentRate}%` }} className="h-full rounded-full bg-gradient-to-r from-rose-400 to-orange-500 shadow-sm"></div>
                         </div>
                         <p className="text-[11px] text-slate-400 font-medium">Loss index mapping non-presence session tags</p>
                     </div>
                 </div>
+
 
                 {/* Card 3: Audit Footprints */}
                 <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden flex flex-col justify-between group hover:shadow-md transition-all duration-300">
@@ -209,15 +236,36 @@ export function CoreDashboard() {
                     </div>
                     <div className="space-y-1.5">
                         <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200/40">
-                            <div
-                                style={{ width: '100%' }}
-                                className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-600 shadow-sm"
-                            ></div>
+                            <div style={{ width: '100%' }} className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-blue-600 shadow-sm"></div>
                         </div>
                         <p className="text-[11px] text-slate-400 font-medium">Acquired database roll call transactions registered</p>
                     </div>
                 </div>
 
+            </div>
+            {/* 🚀 SCHOOL CORE ATTENDANCE SEASONS TREND CURVE GRAPH */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm w-full space-y-4">
+                <div className="pb-3 border-b border-slate-100">
+                    <h3 className="font-bold text-slate-800 text-base">Annual Attendance Consistency Curve</h3>
+                    <p className="text-slate-400 text-xs mt-0.5">Aggregated monthly ratio performance index mapping chronological seasonal presence metrics.</p>
+                </div>
+                <div className="pt-2">
+                    {loading ? (
+                        <div className="text-center py-10 text-slate-400 text-xs font-semibold">Calculating seasonal analytics curve...</div>
+                    ) : trendData.length === 0 ? (
+                        <div className="text-center py-10 text-slate-400 text-xs font-semibold">No attendance log rows committed inside the system database for this selection yet.</div>
+                    ) : (
+                        <div className="flex items-end justify-between h-48 pt-6 px-4 bg-slate-50 border border-slate-200 rounded-xl max-w-4xl overflow-x-auto gap-2">
+                            {trendData.map((item, index) => (
+                                <div key={index} className="flex flex-col items-center flex-1 min-w-[50px] group">
+                                    <span className="text-[10px] font-mono font-bold text-indigo-700 opacity-0 group-hover:opacity-100 transition duration-200 mb-1">{item.rate}%</span>
+                                    <div style={{ height: `${Math.min(Math.max((parseFloat(item.rate) * 1.4), 6), 140)}px` }} className="w-full sm:w-6 bg-gradient-to-t from-indigo-500 to-indigo-600 rounded-t-md shadow-sm transition-all duration-300 hover:from-indigo-600 hover:to-indigo-700"></div>
+                                    <span className="text-[10px] font-bold text-slate-400 mt-2 truncate w-full text-center">{item.month?.slice(0, 3)}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* 🚀 FIXED CONFIGURATION: ONLY RENDER THE PERFORMANCE GRID FOR THE INSTITUTE ADMIN WORKSPACE */}
@@ -226,7 +274,6 @@ export function CoreDashboard() {
                     <div className="flex items-center space-x-2 pb-4 border-b border-slate-100">
                         <BarChart3 className="text-indigo-600 h-5 w-5" />
                         <h3 className="font-bold text-slate-800 text-base">
-                            {/* Dynamic Header text morphs context based on logged-in user profile role type */}
                             {user?.role === 'class_teacher' ? 'Your Assigned Classroom Performance' : 'Institute Classroom Performance Matrix'}
                         </h3>
                     </div>
@@ -261,6 +308,7 @@ export function CoreDashboard() {
 
                                     {/* Faculty Assignment Footer Link details block marker */}
                                     <div className="flex items-center space-x-1.5 text-slate-500 text-xs font-semibold pt-1 border-t border-slate-200/50">
+                                        {/* 🚀 FIXED ICON EMBED */}
                                         <UserCheck size={13} className="text-indigo-500" />
                                         <span>Assigned Class Teacher: </span>
                                         <span className="text-slate-900 font-bold ml-0.5">{cls.teacherName}</span>

@@ -19,6 +19,8 @@ export const AuthProvider = ({ children }) => {
   const [currentYearId, setCurrentYearId] = useState(() => {
     return localStorage.getItem('selectedAcademicYearId') || user?.academicYearId || '';
   });
+  const [academicYearsList, setAcademicYearsList] = useState([]);
+  const isYearLocked = academicYearsList.find(y => String(y.id) === String(currentYearId))?.isLocked || false;
   // Re-wired API Login pipeline to support thin controllers
   const login = async (email, password) => {
     // eslint-disable-next-line no-useless-catch
@@ -60,7 +62,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, setUser, login, logout, currentYearId, setCurrentYearId }}>
+    <AuthContext.Provider value={{ user, setUser, login, logout, currentYearId, setCurrentYearId, isYearLocked, setAcademicYearsList }}>
       {children}
     </AuthContext.Provider>
   );

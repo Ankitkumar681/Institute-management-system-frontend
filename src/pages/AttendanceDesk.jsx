@@ -6,7 +6,7 @@ import { Calendar, Search, Save, Check, X, RefreshCw, Download, ArrowLeft, Arrow
 import Swal from 'sweetalert2';
 
 export default function AttendanceDesk() {
-    const { user, currentYearId, setCurrentYearId } = useAuth();
+    const { user, currentYearId, setCurrentYearId, isYearLocked } = useAuth();
 
     const [classId, setClassId] = useState('');
     const [roster, setRoster] = useState([]);
@@ -218,33 +218,30 @@ export default function AttendanceDesk() {
         if (!classId) return alertService.error('Validation Missing', 'Please select a classroom branch selection node.');
         setLoading(true);
         try {
-            // 🚀 REFACTORED: Passes both selected year context AND the active calendar session date string
             const res = await API.get(`/attendance/roster`, {
-                params: {
-                    classId,
-                    academicYearId: currentYearId,
-                    date: selectedDate // ⚡ Tells the server exactly which date log snapshot to look up
+                params: { classId, academicYearId: currentYearId, date: selectedDate }
+            });
+
+            const rawRosterPayload = res.data || [];
+
+            // 🚀 FIXED: Dynamic De-duplication Filtering Pass!
+            // Filters out any duplicate student UUID entries caused by database join duplication.
+            const uniqueStudentsMap = new Map();
+            rawRosterPayload.forEach(student => {
+                if (student && student.id) {
+                    uniqueStudentsMap.set(student.id, student);
                 }
             });
+            const cleanDeduplicatedRoster = Array.from(uniqueStudentsMap.values());
 
-            setRoster(res.data);
+            setRoster(cleanDeduplicatedRoster);
 
-            // 🚀 THE MERGE UPDATE: Automatically load pre-existing statuses or default to 'Present'
+            // Re-map the state grid dictionary parameters correctly using our clean list array
             const initialGrid = {};
-            res.data.forEach(student => {
-                // 🔥 If existingStatus is found, map it immediately! Otherwise, seed as 'Present'
+            cleanDeduplicatedRoster.forEach(student => {
                 initialGrid[student.id] = student.existingStatus || 'Present';
             });
-
             setAttendanceGrid(initialGrid);
-
-            // Present a small success notification toast to inform the teacher if history was pulled
-            const loadedHistoryCount = res.data.filter(s => s.existingStatus).length;
-            if (loadedHistoryCount > 0) {
-                alertService.success('Logs Loaded', `Pre-existing attendance matrix for ${selectedDate} pulled up for modification.`);
-            } else {
-                alertService.success('Roster Initialized', 'Fresh roll call session template loaded.');
-            }
 
         } catch (err) {
             alertService.error('Roster Error', 'Error loading student roster information parameters.');
@@ -252,7 +249,9 @@ export default function AttendanceDesk() {
             setLoading(false);
         }
     };
+
     const updateStatusInGrid = (studentId, status) => {
+        if (isYearLocked) return;
         setAttendanceGrid(prev => ({
             ...prev,
             [studentId]: status
@@ -372,6 +371,9 @@ export default function AttendanceDesk() {
         }
     };
     const submitBulkLogs = async () => {
+        if (isYearLocked) {
+            return alertService.error('Read-Only Track', 'This academic cycle is archived and locked. You cannot modify attendance sheets.');
+        }
         try {
             const records = Object.keys(attendanceGrid).map(studentId => {
                 const studentObject = roster.find(s => String(s.id) === String(studentId));
@@ -390,7 +392,8 @@ export default function AttendanceDesk() {
             alertService.success('Logs Recorded', `Bulk attendance logs for ${selectedDate} saved instantly!`);
             fetchLogs();
         } catch (err) {
-            alertService.error('Commit Failure', 'Failed saving classroom batch logs.');
+            const properServerMessage = err.response?.data?.message || 'Failed saving classroom batch logs.';
+            alertService.error('Commit Failure', properServerMessage);
         }
     };
 
@@ -452,11 +455,17 @@ export default function AttendanceDesk() {
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-5 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-slate-50/50">
                         <span className="font-bold text-slate-800">Roster Log Sheet Matrix ({activeClassroom ? `${activeClassroom.name} — ${activeClassroom.section}` : classId})</span>
-                        <div className="flex items-center space-x-2">
-                            <button onClick={() => { const u = {}; roster.forEach(s => u[s.id] = 'Present'); setAttendanceGrid(u); }} className="text-xs bg-white text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg transition font-bold cursor-pointer hover:bg-slate-50">Mark All Present</button>
-                            <button onClick={() => { const u = {}; roster.forEach(s => u[s.id] = 'Absent'); setAttendanceGrid(u); }} className="text-xs bg-white text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg transition font-bold cursor-pointer hover:bg-slate-50">Mark All Absent</button>
-                            <button onClick={submitBulkLogs} style={{ backgroundColor: '#059669', color: '#ffffff' }} className="text-sm font-bold px-5 py-2.5 rounded-xl flex items-center space-x-2 cursor-pointer hover:opacity-95 shadow-sm"><Save className="h-4 w-4" style={{ color: '#ffffff' }} /><span style={{ color: '#ffffff' }}>Commit Bulk</span></button>
-                        </div>
+                        {!isYearLocked ? (
+                            <div className="flex items-center space-x-2">
+                                <button onClick={() => { const u = {}; roster.forEach(s => u[s.id] = 'Present'); setAttendanceGrid(u); }} className="text-xs bg-white text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg transition font-bold cursor-pointer hover:bg-slate-50">Mark All Present</button>
+                                <button onClick={() => { const u = {}; roster.forEach(s => u[s.id] = 'Absent'); setAttendanceGrid(u); }} className="text-xs bg-white text-slate-600 border border-slate-200 px-3 py-1.5 rounded-lg transition font-bold cursor-pointer hover:bg-slate-50">Mark All Absent</button>
+                                <button onClick={submitBulkLogs} style={{ backgroundColor: '#059669', color: '#ffffff' }} className="text-sm font-bold px-5 py-2.5 rounded-xl flex items-center space-x-2 cursor-pointer hover:opacity-95 shadow-sm"><Save className="h-4 w-4" style={{ color: '#ffffff' }} /><span style={{ color: '#ffffff' }}>Commit Bulk</span></button>
+                            </div>
+                        ) : (
+                            <span className="text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl">
+                                🔒 Read-Only Historical Ledger Archives
+                            </span>
+                        )}
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm border-collapse">
@@ -466,10 +475,49 @@ export default function AttendanceDesk() {
                             <tbody className="divide-y divide-slate-100">
                                 {roster.map((student) => (
                                     <tr key={student.id} className="hover:bg-slate-50/50 transition">
-                                        <td className="p-4 pl-6"><p className="font-bold text-slate-900">{student.name}</p><p className="text-xs text-slate-400 font-mono mt-0.5">{student.email}</p></td>
-                                        <td className="p-4 text-center"><button onClick={() => updateStatusInGrid(student.id, 'Present')} style={attendanceGrid[student.id] === 'Present' ? { backgroundColor: '#10b981', borderColor: '#059669', color: '#ffffff' } : {}} className={`h-8 w-8 mx-auto rounded-full flex items-center justify-center border cursor-pointer ${attendanceGrid[student.id] === 'Present' ? 'text-white' : 'bg-slate-50 border-slate-200 text-slate-400'}`}><Check className="h-4 w-4" /></button></td>
-                                        <td className="p-4 text-center"><button onClick={() => updateStatusInGrid(student.id, 'Absent')} style={attendanceGrid[student.id] === 'Absent' ? { backgroundColor: '#ef4444', borderColor: '#dc2626', color: '#ffffff' } : {}} className={`h-8 w-8 mx-auto rounded-full flex items-center justify-center border cursor-pointer ${attendanceGrid[student.id] === 'Absent' ? 'text-white' : 'bg-slate-50 border-slate-200 text-slate-400'}`}><X className="h-4 w-4" /></button></td>
-                                        <td className="p-4 text-center"><button onClick={() => updateStatusInGrid(student.id, 'Late')} style={attendanceGrid[student.id] === 'Late' ? { backgroundColor: '#f59e0b', borderColor: '#d97706', color: '#ffffff' } : {}} className={`h-8 w-8 mx-auto rounded-full flex items-center justify-center border cursor-pointer ${attendanceGrid[student.id] === 'Late' ? 'text-white' : 'bg-slate-50 border-slate-200 text-slate-400'}`}><span className="text-xs font-black">L</span></button></td>
+                                        <td className="p-4 pl-6">
+                                            <p className="font-bold text-slate-900">{student.name}</p>
+                                            <p className="text-xs text-slate-400 font-mono mt-0.5">{student.email}</p>
+                                        </td>
+
+                                        {/* 🟢 PRESENT STATUS BUTTON TARGET */}
+                                        <td className="p-4 text-center">
+                                            <button
+                                                disabled={isYearLocked}
+                                                onClick={() => updateStatusInGrid(student.id, 'Present')}
+                                                style={attendanceGrid[student.id] === 'Present' ? { backgroundColor: '#10b981', borderColor: '#059669', color: '#ffffff' } : {}}
+                                                className={`h-8 w-8 mx-auto rounded-full flex items-center justify-center border transition-all ${isYearLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer active:scale-90'
+                                                    } ${attendanceGrid[student.id] === 'Present' ? 'text-white shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                                            >
+                                                <Check className="h-4 w-4" />
+                                            </button>
+                                        </td>
+
+                                        {/* 🔴 ABSENT STATUS BUTTON TARGET */}
+                                        <td className="p-4 text-center">
+                                            <button
+                                                disabled={isYearLocked}
+                                                onClick={() => updateStatusInGrid(student.id, 'Absent')}
+                                                style={attendanceGrid[student.id] === 'Absent' ? { backgroundColor: '#ef4444', borderColor: '#dc2626', color: '#ffffff' } : {}}
+                                                className={`h-8 w-8 mx-auto rounded-full flex items-center justify-center border transition-all ${isYearLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer active:scale-90'
+                                                    } ${attendanceGrid[student.id] === 'Absent' ? 'text-white shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                                            >
+                                                <X className="h-4 w-4" />
+                                            </button>
+                                        </td>
+
+                                        {/* 🟡 LATE STATUS BUTTON TARGET */}
+                                        <td className="p-4 text-center">
+                                            <button
+                                                disabled={isYearLocked}
+                                                onClick={() => updateStatusInGrid(student.id, 'Late')}
+                                                style={attendanceGrid[student.id] === 'Late' ? { backgroundColor: '#f59e0b', borderColor: '#d97706', color: '#ffffff' } : {}}
+                                                className={`h-8 w-8 mx-auto rounded-full flex items-center justify-center border transition-all ${isYearLocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer active:scale-90'
+                                                    } ${attendanceGrid[student.id] === 'Late' ? 'text-white shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                                            >
+                                                <span className="text-xs font-black">L</span>
+                                            </button>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>

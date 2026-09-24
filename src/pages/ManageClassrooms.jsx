@@ -18,11 +18,17 @@ export default function ManageClassrooms() {
     const [editName, setEditName] = useState('');
     const [editSection, setEditSection] = useState('');
 
+    const [localYearLocked, setLocalYearLocked] = useState(false);
     const fetchClassrooms = async () => {
         try {
             const res = await API.get('/classrooms', { params: { page: currentPage, limit: 5, academicYearId: currentYearId || '' } });
             setClassrooms(res.data.records || []);
             setTotalPages(res.data.totalPages || 1);
+
+            const resYears = await API.get('/attendance/academic-years');
+            const targetYearObj = (resYears.data || []).find(y => String(y.id) === String(currentYearId));
+
+            setLocalYearLocked(targetYearObj?.isLocked || false);
         } catch (err) {
             console.error('Error loading classrooms:', err);
         }
@@ -76,28 +82,34 @@ export default function ManageClassrooms() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full text-slate-800">
 
             {/* Left Column: Form Panel */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-fit">
-                <div className="pb-4 mb-4 border-b border-slate-100">
-                    <h3 className="font-bold text-slate-800 text-base">Create New Classroom</h3>
-                    <p className="text-slate-400 text-xs mt-0.5">Define structured class nodes for students</p>
+            {!localYearLocked ? (
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-fit">
+                    <div className="pb-4 mb-4 border-b border-slate-100">
+                        <h3 className="font-bold text-slate-800 text-base">Create New Classroom</h3>
+                        <p className="text-slate-400 text-xs mt-0.5">Define structured class nodes for students</p>
+                    </div>
+
+                    <form onSubmit={handleCreateClass} className="space-y-4">
+                        <div>
+                            <label className="block text-slate-600 text-xs font-bold uppercase mb-1">Class Name</label>
+                            <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Grade-10" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white transition" />
+                        </div>
+
+                        <div>
+                            <label className="block text-slate-600 text-xs font-bold uppercase mb-1">Section / Division</label>
+                            <input type="text" required value={section} onChange={(e) => setSection(e.target.value)} placeholder="e.g. Section-A" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white transition" />
+                        </div>
+
+                        <button type="submit" style={{ backgroundColor: '#4f46e5', color: '#ffffff' }} className="w-full font-bold text-sm py-2.5 rounded-xl transition cursor-pointer hover:opacity-90 border-0 flex items-center justify-center h-11 shadow-md">
+                            <span>Add Classroom</span>
+                        </button>
+                    </form>
                 </div>
-
-                <form onSubmit={handleCreateClass} className="space-y-4">
-                    <div>
-                        <label className="block text-slate-600 text-xs font-bold uppercase mb-1">Class Name</label>
-                        <input type="text" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Grade-10" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white transition" />
-                    </div>
-
-                    <div>
-                        <label className="block text-slate-600 text-xs font-bold uppercase mb-1">Section / Division</label>
-                        <input type="text" required value={section} onChange={(e) => setSection(e.target.value)} placeholder="e.g. Section-A" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-indigo-500 focus:bg-white transition" />
-                    </div>
-
-                    <button type="submit" style={{ backgroundColor: '#4f46e5', color: '#ffffff' }} className="w-full font-bold text-sm py-2.5 rounded-xl transition cursor-pointer hover:opacity-90 border-0 flex items-center justify-center h-11 shadow-md">
-                        <span>Add Classroom</span>
-                    </button>
-                </form>
-            </div>
+            ) : (
+                <div className="bg-amber-50 border border-amber-200 p-5 rounded-2xl text-amber-800 text-xs font-semibold leading-relaxed">
+                    The selected viewing session is archived and locked. Adding new classroom containers or partitioning sections inside this cycle is restricted.
+                </div>
+            )}
 
             {/* Right Column: Listing Grid View with Inline Mode Controllers */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
@@ -141,37 +153,45 @@ export default function ManageClassrooms() {
                                                 <td className="p-4 font-bold text-slate-900">{cls.name}</td>
                                                 <td className="p-4 text-slate-500 font-medium">{cls.section}</td>
                                                 <td className="p-4 text-right space-x-2 shrink-0 whitespace-nowrap">
-                                                    <button
-                                                        onClick={() => startEditing(cls)}
-                                                        style={{ backgroundColor: '#e2e8f0', color: '#334155' }}
-                                                        className="text-xs font-bold px-3 py-1.5 rounded-lg transition hover:bg-slate-300 cursor-pointer border-0"
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                    <button
-                                                        onClick={async () => {
-                                                            // 🚀 FIX: Pass "Yes, delete it!" as the third parameter to differentiate from suspension modals
-                                                            const confirmed = await alertService.confirm(
-                                                                'Are you absolutely sure?',
-                                                                `This will permanently purge "${cls.name}" and all historical logs attached to it.`,
-                                                                'Yes, delete it!' // ⚡ Sent straight to our upgraded dynamic alert service
-                                                            );
+                                                    {/* 🚀 THE READ-ONLY UI GUARD: Conditionally render management operations based on cycle state */}
+                                                    {!localYearLocked ? (
+                                                        <>
+                                                            <button
+                                                                onClick={() => startEditing(cls)}
+                                                                style={{ backgroundColor: '#e2e8f0', color: '#334155' }}
+                                                                className="text-xs font-bold px-3 py-1.5 rounded-lg transition hover:bg-slate-300 cursor-pointer border-0 active:scale-95"
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                onClick={async () => {
+                                                                    const confirmed = await alertService.confirm(
+                                                                        'Are you absolutely sure?',
+                                                                        `This will permanently purge "${cls.name}" and all historical logs attached to it.`,
+                                                                        'Yes, delete it!'
+                                                                    );
 
-                                                            if (confirmed) {
-                                                                try {
-                                                                    await API.delete(`/classrooms/${cls.id}`);
-                                                                    alertService.success('Purged Successfully', 'The classroom node was dropped cleanly.');
-                                                                    fetchClassrooms();
-                                                                } catch (err) {
-                                                                    alertService.error('Operation Failed', 'Failed dropping classroom boundary constraints.');
-                                                                }
-                                                            }
-                                                        }}
-                                                        style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}
-                                                        className="text-xs font-bold px-3 py-1.5 rounded-lg transition hover:bg-red-200 cursor-pointer shadow-sm border-0"
-                                                    >
-                                                        Delete
-                                                    </button>
+                                                                    if (confirmed) {
+                                                                        try {
+                                                                            await API.delete(`/classrooms/${cls.id}`);
+                                                                            alertService.success('Purged Successfully', 'The classroom node was dropped cleanly.');
+                                                                            fetchClassrooms();
+                                                                        } catch (err) {
+                                                                            alertService.error('Operation Failed', 'Failed dropping classroom boundary constraints.');
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}
+                                                                className="text-xs font-bold px-3 py-1.5 rounded-lg transition hover:bg-red-200 cursor-pointer shadow-sm border-0 active:scale-95"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <span className="text-xs font-semibold italic text-slate-400 bg-slate-100/60 px-2.5 py-1 rounded-lg select-none border border-slate-200/40">
+                                                            🔒 Immutable Record
+                                                        </span>
+                                                    )}
                                                 </td>
                                             </>
                                         )}

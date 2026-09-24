@@ -12,20 +12,28 @@ export default function ManageAssignments() {
     const [selectedTeacher, setSelectedTeacher] = useState('');
     const [selectedClass, setSelectedClass] = useState('');
     const [loading, setLoading] = useState(false);
+    const [localYearLocked, setLocalYearLocked] = useState(false);
 
     const loadData = async () => {
         try {
-            const [teachersRes, classesRes] = await Promise.all([
-                API.get('/users/staff', { params: { limit: 'all' } }), // Pulls all staff records envelope
-                API.get('/classrooms', { params: { limit: 'all', academicYearId: currentYearId } })
+            const [teachersRes, classesRes, yearsRes] = await Promise.all([
+                API.get('/users/staff', { params: { limit: 'all' } }),
+                API.get('/classrooms', { params: { limit: 'all', academicYearId: currentYearId } }),
+                API.get('/attendance/academic-years')
             ]);
-            // Filter out general management staff, keeping only class_teachers
-            const rawTeachers = teachersRes.data?.records || (Array.isArray(teachersRes.data) ? teachersRes.data : []);
+            const rawTeachers = teachersRes?.data?.records || (Array.isArray(teachersRes?.data) ? teachersRes.data : []);
             setTeachers(rawTeachers.filter(t => t.role === 'class_teacher'));
-            const rawClassrooms = classesRes.data?.records || (Array.isArray(classesRes.data) ? classesRes.data : []);
+
+            const rawClassrooms = classesRes?.data?.records || (Array.isArray(classesRes?.data) ? classesRes.data : []);
             setClassrooms(rawClassrooms);
+            const rawYearsArray = yearsRes?.data?.records || (Array.isArray(yearsRes?.data) ? yearsRes.data : (yearsRes || []));
+            const targetYearObj = Array.isArray(rawYearsArray)
+                ? rawYearsArray.find(y => String(y?.id) === String(currentYearId))
+                : null;
+
+            setLocalYearLocked(targetYearObj?.isLocked || false);
         } catch (err) {
-            console.error(err);
+            console.error('Failed loading assignment directory dependencies:', err);
         }
     };
 
@@ -40,6 +48,7 @@ export default function ManageAssignments() {
     }, []);
     const handleAssign = async (e) => {
         e.preventDefault();
+        if (localYearLocked) return alertService.error('Read-Only Track', 'This academic cycle is archived and locked. You cannot modify assignments.');
         if (!selectedTeacher) return alertService.error('Validation Missing', 'Please pick a teacher to assign.');
         setLoading(true);
         try {
@@ -58,7 +67,7 @@ export default function ManageAssignments() {
             setLoading(false);
         }
     };
-    
+
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 w-full text-slate-800">
 
@@ -68,28 +77,33 @@ export default function ManageAssignments() {
                     <Layers className="text-indigo-600 h-5 w-5" />
                     <h3 className="font-bold text-slate-800">Map Class Teacher</h3>
                 </div>
+                {!localYearLocked ? (
+                    <form onSubmit={handleAssign} className="space-y-4">
+                        <div>
+                            <label className="block text-slate-600 text-xs font-bold uppercase mb-1.5">Select Class Teacher</label>
+                            <select value={selectedTeacher} onChange={(e) => setSelectedTeacher(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium cursor-pointer">
+                                <option value="">-- Choose Faculty Member --</option>
+                                {teachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.email})</option>)}
+                            </select>
+                        </div>
 
-                <form onSubmit={handleAssign} className="space-y-4">
-                    <div>
-                        <label className="block text-slate-600 text-xs font-bold uppercase mb-1.5">Select Class Teacher</label>
-                        <select value={selectedTeacher} onChange={(e) => setSelectedTeacher(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium cursor-pointer">
-                            <option value="">-- Choose Faculty Member --</option>
-                            {teachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.email})</option>)}
-                        </select>
+                        <div>
+                            <label className="block text-slate-600 text-xs font-bold uppercase mb-1.5">Target Classroom Allocation</label>
+                            <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium cursor-pointer">
+                                <option value="">-- Leave Unassigned / Remove Class --</option>
+                                {classrooms.map(c => <option key={c.id} value={c.id}>{c.name} — {c.section}</option>)}
+                            </select>
+                        </div>
+
+                        <button type="submit" disabled={loading} style={{ backgroundColor: '#4f46e5', color: '#ffffff' }} className="w-full font-bold text-sm py-2.5 rounded-xl transition border-0 cursor-pointer shadow-md hover:opacity-95">
+                            <span>Synchronize Allocation</span>
+                        </button>
+                    </form>
+                ) : (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold p-4 rounded-xl leading-relaxed select-none">
+                        🔒 Mapping Suspended: This academic cycle has been archived and locked. Faculty allocation modifications for this track are restricted.
                     </div>
-
-                    <div>
-                        <label className="block text-slate-600 text-xs font-bold uppercase mb-1.5">Target Classroom Allocation</label>
-                        <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium cursor-pointer">
-                            <option value="">-- Leave Unassigned / Remove Class --</option>
-                            {classrooms.map(c => <option key={c.id} value={c.id}>{c.name} — {c.section}</option>)}
-                        </select>
-                    </div>
-
-                    <button type="submit" disabled={loading} style={{ backgroundColor: '#4f46e5', color: '#ffffff' }} className="w-full font-bold text-sm py-2.5 rounded-xl transition border-0 cursor-pointer shadow-md hover:opacity-95">
-                        <span>Synchronize Allocation</span>
-                    </button>
-                </form>
+                )}
             </div>
 
             {/* Right Column: Active Relationships Mapping Table Grid */}
