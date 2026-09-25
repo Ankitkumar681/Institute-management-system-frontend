@@ -151,7 +151,7 @@ export default function DashboardLayout({ children }) {
                     <div className="flex items-center space-x-4">
                         {/* 🚀 GLOBAL HEADER MASTER SELECTOR DROP-DOWN OPTION ROW */}
                         {user?.role !== 'super_admin' &&
-                            !['/staff', '/staff/onboard'].includes(location.pathname) && ( // 🔥 THE HIDE GUARD: Automatically hides dropdown on /staff and /staff/onboard/assignments pages
+                            !['/staff'].includes(location.pathname) && ( // 🔥 THE HIDE GUARD: Automatically hides dropdown on /staff and /staff/onboard/assignments pages
                                 <div className="flex items-center space-x-2">
                                     <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Viewing Session:</span>
                                     <select

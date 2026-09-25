@@ -27,13 +27,10 @@ export default function StudentDirectory() {
     const [formParentEmail, setFormParentEmail] = useState('');
     const [formBloodGroup, setFormBloodGroup] = useState('');
     useEffect(() => {
-        fetchFilterOptions();
-    }, [currentYearId]);
-
-    useEffect(() => {
-        loadStudentData();
+        if (currentYearId) {
+            fetchFilterOptions();
+        }
     }, [search, classFilter, sortOrder, currentPage, currentYearId]);
-
     useEffect(() => {
         const handleGlobalYearSwitch = () => {
             setClassFilter('');
@@ -56,6 +53,7 @@ export default function StudentDirectory() {
             const dataEnvelope = classesRes.data;
             const list = dataEnvelope?.records || (Array.isArray(dataEnvelope) ? dataEnvelope : []);
             setClassrooms(list);
+            await loadStudentData();
             const rawYears = yearsRes?.data?.records || (Array.isArray(yearsRes?.data) ? yearsRes.data : (yearsRes || []));
             const activeCycleObj = Array.isArray(rawYears) ? rawYears.find(y => String(y.id) === String(currentYearId)) : null;
 
@@ -99,6 +97,7 @@ export default function StudentDirectory() {
             alertService.success('Profile Saved', 'Student record properties updated successfully.');
             setEditingId(null);
             loadStudentData();
+
         } catch (err) {
             alertService.error('Update Denied', err.response?.data?.message || 'Error processing student modifications.');
         }
